@@ -1,0 +1,92 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input, decode_predictions
+from tensorflow.keras.preprocessing import image
+import numpy as np
+from io import BytesIO
+from PIL import Image
+
+app = FastAPI()
+
+# Enable CORS for React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+model = MobileNetV2(weights='imagenet')
+
+# Extended waste mapping: ImageNet label -> Waste type
+WASTE_MAPPING = {
+    # Recyclable
+    "plastic_bottle": "recyclable",
+    "water_bottle": "recyclable",
+    "beer_bottle": "recyclable",
+    "wine_bottle": "recyclable",
+    "bottle": "recyclable",
+    "plastic_bag": "recyclable",
+    "can": "recyclable",
+    "glass_bottle": "recyclable",
+    "tin": "recyclable",
+    "carton": "recyclable",
+    "paper_towel": "recyclable",
+    "newspaper": "recyclable",
+
+    # Organic
+    "apple": "organic",
+    "banana": "organic",
+    "orange": "organic",
+    "carrot": "organic",
+    "broccoli": "organic",
+    "tomato": "organic",
+    "eggplant": "organic",
+    "bread": "organic",
+    "meat_loaf": "organic",
+    "cheeseburger": "organic",
+
+    # Hazardous
+    "syringe": "hazardous",
+    "battery": "hazardous",
+    "lighter": "hazardous",
+    "fire_extinguisher": "hazardous",
+    "gas_mask": "hazardous",
+    "toilet_tissue": "hazardous",
+}
+
+
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    contents = await file.read()
+    img = Image.open(BytesIO(contents)).convert("RGB")
+    img = img.resize((224, 224))
+
+    x = image.img_to_array(img)
+    x = np.expand_dims(x, axis=0)
+    x = preprocess_input(x)
+
+    preds = model.predict(x)
+    top_preds = decode_predictions(preds, top=3)[0]
+
+    # Map to waste categories
+    results = []
+    for (_, label, prob) in top_preds:
+        waste_type = WASTE_MAPPING.get(label, "unknown")
+        results.append({
+            "label": label,
+            "waste_type": waste_type,
+            "probability": float(prob)
+        })
+
+    # Determine final category: highest probability mapped
+    for res in results:
+        if res["waste_type"] != "unknown":
+            final_category = res["waste_type"]
+            break
+    else:
+        final_category = "unknown"
+
+    return {"predictions": results, "final_category": final_category}

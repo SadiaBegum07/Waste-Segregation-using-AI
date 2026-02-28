@@ -1,0 +1,197 @@
+                                                                                                                                                                                                                            import React, { useState } from "react";
+import axios from "axios";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LabelList,
+  Cell,
+} from "recharts";
+
+function App() {
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [results, setResults] = useState(null);
+  const [finalCategory, setFinalCategory] = useState("");
+
+  const handleImage = (e) => {
+    const file = e.target.files[0];
+    setImage(file);
+    setPreview(URL.createObjectURL(file));
+    setResults(null);
+    setFinalCategory("");
+  };
+
+  const analyze = async () => {
+    if (!image) return;
+
+    const formData = new FormData();
+    formData.append("file", image);
+
+    try {
+      const res = await axios.post("http://127.0.0.1:8000/predict", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      // Map predictions to graph format
+      const graphData = res.data.predictions.map((p) => {
+        let color, icon, typeLabel;
+
+        if (p.waste_type === "organic") {
+          color = "#4CAF50";
+          icon = "🍎";
+          typeLabel = "Organic Waste";
+        } else if (p.waste_type === "recyclable") {
+          color = "#2196F3";
+          icon = "♻";
+          typeLabel = "Recyclable Waste";
+        } else if (p.waste_type === "hazardous") {
+          color = "#F44336";
+          icon = "☣";
+          typeLabel = "Hazardous Waste";
+        } else {
+          color = "#9E9E9E";
+          icon = "❓";
+          typeLabel = "Unknown Category";
+        }
+
+        return {
+          name: `${p.label} (${p.waste_type})`,
+          label: p.label,
+          type: p.waste_type,
+          typeLabel,
+          confidence: +(p.probability * 100).toFixed(2),
+          color,
+          icon,
+        };
+      });
+
+      setResults(graphData);
+      setFinalCategory(res.data.final_category);
+    } catch (err) {
+      console.error(err);
+      alert("Error connecting to backend. Make sure backend is running.");
+    }
+  };
+
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+
+    const data = payload[0].payload;
+
+    return (
+      <div
+        style={{
+          background: "white",
+          border: "1px solid #ccc",
+          padding: "12px",
+          borderRadius: "8px",
+          boxShadow: "0 3px 8px rgba(0,0,0,0.25)",
+          minWidth: "180px",
+        }}
+      >
+        <div style={{ fontSize: 20, marginBottom: 6 }}>
+          {data.icon} <strong>{data.label}</strong>
+        </div>
+
+        <div style={{ marginBottom: 4 }}>
+          <strong>Waste Type:</strong> {data.typeLabel}
+        </div>
+
+        <div>
+          <strong>Confidence:</strong> {data.confidence}%
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+      <h1>Waste Segregation AI</h1>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: "20px",
+          marginBottom: 20,
+        }}
+      >
+        {/* Left Panel */}
+        <div
+          style={{
+            flex: "0 0 200px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+          }}
+        >
+          <input type="file" onChange={handleImage} />
+          {preview && <img src={preview} width="180" alt="preview" />}
+          <button
+            onClick={analyze}
+            style={{ padding: "8px 16px", fontSize: 14, cursor: "pointer" }}
+          >
+            Analyze
+          </button>
+
+          {finalCategory && (
+            <div style={{ marginTop: 10, fontWeight: "bold" }}>
+              Final Waste Type: {finalCategory.toUpperCase()}
+            </div>
+          )}
+        </div>
+
+        {/* Right Panel - Chart */}
+        {results && (
+          <div style={{ flex: 1, minWidth: 300, height: 330, marginTop: 20 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={results}
+                margin={{ top: 30, right: 10, left: 0, bottom: 10 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis unit="%" />
+                <Tooltip content={<CustomTooltip />} />
+
+                <Bar dataKey="confidence" isAnimationActive={false}>
+                  {results.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+
+                  <LabelList
+                    dataKey="confidence"
+                    position="top"
+                    formatter={(val) => `${val}%`}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Prediction List */}
+      {results && (
+        <div style={{ marginTop: 20 }}>
+          <h2>Top Predictions</h2>
+          <ul>
+            {results.map((r, idx) => (
+              <li key={idx}>
+                {r.icon} {r.label} ({r.type}) – {r.confidence}%
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
